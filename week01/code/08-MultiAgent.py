@@ -8,32 +8,42 @@
 适用场景：电商客服系统订单问题处理
 """
 
-import autogen
 import json
 import time
 import os
 from typing import Dict, List, Any
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import asyncio
+from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
+from autogen_core.models import ChatCompletionClient
+from autogen_agentchat.conditions import TextMentionTermination
+from autogen_agentchat.teams import RoundRobinGroupChat, SelectorGroupChat
+from autogen_agentchat.ui import Console
+from autogen_ext.models.openai import OpenAIChatCompletionClient
 
 # 加载环境变量
 load_dotenv()
-api_key = os.getenv('V3_API_KEY')
+api_key = os.getenv('OPENAI_API_KEY')
+base_url = os.getenv('OPENAI_API_BASE')
 
 # 配置 LLM
-config_list = [
-    {
-        "model": "gpt-4o",
-        "api_key": api_key,
-        "base_url": "https://api.vveai.com/v1"
-    }
-]
+config_model = {
+    "model": "gpt-4o",
+    "api_key": api_key,
+    "base_url": base_url
+}
 
 llm_config = {
-    "config_list": config_list,
+    "provider": "autogen_ext.models.openai.OpenAIChatCompletionClient",
+    "config": config_model,
     "temperature": 0.7,
     "timeout": 60,
 }
+
+print(llm_config)
+
+model_client = ChatCompletionClient.load_component(llm_config)
 
 # 模拟企业数据库和API接口
 class EnterpriseDataService:
@@ -137,20 +147,12 @@ def get_logistics_info(tracking_number: str) -> str:
     except Exception as e:
         return f"查询物流信息时出错：{str(e)}"
 
-# 创建用户代理
-user_proxy = autogen.UserProxyAgent(
-    name="客户",
-    human_input_mode="NEVER",
-    max_consecutive_auto_reply=10,
-    is_termination_msg=lambda x: x.get("content", "") and ("问题已解决" in x.get("content", "") or "TERMINATE" in x.get("content", "")),
-    code_execution_config={"work_dir": "temp", "use_docker": False},
-)
 
 # 定义智能体角色
 
 # 1. 客服接待智能体
-customer_service_agent = autogen.AssistantAgent(
-    name="客服接待员",
+customer_service_agent = AssistantAgent(
+    name="CustomerService",
     system_message="""你是一名专业的电商客服接待员。你的职责是：
 1. 友好接待客户，了解客户问题
 2. 对问题进行初步分类（订单查询、退换货、物流问题、产品咨询等）
@@ -161,12 +163,12 @@ customer_service_agent = autogen.AssistantAgent(
 如果问题涉及多个方面，请协调相关专员共同解决。
 
 回复格式：简洁专业，直接回答客户问题。""",
-    llm_config=llm_config,
+    model_client=model_client,
 )
 
 # 2. 订单查询智能体
-order_query_agent = autogen.AssistantAgent(
-    name="订单查询专员",
+order_query_agent = AssistantAgent(
+    name="OrderSpecialist",
     system_message="""你是订单查询专员，负责处理所有订单相关的查询。你的职责包括：
 1. 根据订单号查询订单详细信息
 2. 解释订单状态和处理进度
@@ -177,12 +179,14 @@ order_query_agent = autogen.AssistantAgent(
 根据查询结果，如果发现需要物流或库存部门协助，请主动通知相关专员。
 
 回复格式：提供详细的订单信息，包括状态、商品、金额等关键信息。""",
-    llm_config=llm_config,
+    model_client=model_client,
+    reflect_on_tool_use=True,
+    tools=[get_order_info],
 )
 
 # 3. 物流跟踪智能体
-logistics_agent = autogen.AssistantAgent(
-    name="物流跟踪专员",
+logistics_agent = AssistantAgent(
+    name="LogisticsSpecialist",
     system_message="""你是物流跟踪专员，专门处理配送和物流相关问题。你的职责包括：
 1. 查询包裹物流状态和位置
 2. 提供准确的配送时间预估
@@ -193,12 +197,14 @@ logistics_agent = autogen.AssistantAgent(
 请提供实时、准确的物流信息，并主动提醒客户注意事项。
 
 回复格式：提供详细的物流状态，包括当前位置、预计到达时间等。""",
-    llm_config=llm_config,
+    model_client=model_client,
+    reflect_on_tool_use=True,
+    tools=[get_logistics_info],
 )
 
 # 4. 库存管理智能体
-inventory_agent = autogen.AssistantAgent(
-    name="库存管理专员", 
+inventory_agent = AssistantAgent(
+    name="InventorySpecialist", 
     system_message="""你是库存管理专员，负责处理库存相关问题。你的职责包括：
 1. 查询产品库存状态
 2. 预估补货时间
@@ -209,33 +215,13 @@ inventory_agent = autogen.AssistantAgent(
 请提供准确的库存信息，并为缺货情况提供合理的解决方案。
 
 回复格式：提供库存状态，如果缺货请说明预计补货时间。""",
-    llm_config=llm_config,
-)
-
-# 注册工具函数
-autogen.register_function(
-    get_order_info,
-    caller=order_query_agent,
-    executor=user_proxy,
-    description="根据订单号获取订单详细信息"
-)
-
-autogen.register_function(
-    get_inventory_info,
-    caller=inventory_agent,
-    executor=user_proxy,
-    description="根据产品名称获取库存信息"
-)
-
-autogen.register_function(
-    get_logistics_info,
-    caller=logistics_agent,
-    executor=user_proxy,
-    description="根据运单号获取物流跟踪信息"
+    model_client=model_client,
+    reflect_on_tool_use=True,
+    tools=[get_inventory_info],
 )
 
 # 企业级客服场景测试
-def run_scenario_with_autogen(scenario_name: str, customer_message: str):
+async def run_scenario_with_autogen(scenario_name: str, customer_message: str):
     """使用 AutoGen 运行客服场景"""
     print(f"\n{'='*60}")
     print(f"🎯 {scenario_name}")
@@ -246,20 +232,14 @@ def run_scenario_with_autogen(scenario_name: str, customer_message: str):
     
     try:
         # 创建群组聊天
-        groupchat = autogen.GroupChat(
-            agents=[customer_service_agent, order_query_agent, logistics_agent, inventory_agent, user_proxy],
-            messages=[],
-            max_round=12,
-            speaker_selection_method="auto"
-        )
+        # Termination condition.
+        termination = TextMentionTermination("Have a good day!")
+
+        # Chain the assistant, critic and user agents using RoundRobinGroupChat.
+        groupchat = RoundRobinGroupChat([customer_service_agent, order_query_agent, logistics_agent, inventory_agent], termination_condition=termination,
+                    max_turns=5)
         
-        manager = autogen.GroupChatManager(groupchat=groupchat, llm_config=llm_config)
-        
-        # 开始对话
-        user_proxy.initiate_chat(
-            manager,
-            message=customer_message
-        )
+        await Console(groupchat.run_stream(task=customer_message))
         
         print(f"\n✅ 场景处理完成")
         
@@ -312,7 +292,7 @@ def main():
     ]
     
     for scenario_name, customer_message in scenarios:
-        run_scenario_with_autogen(scenario_name, customer_message)
+        asyncio.run(run_scenario_with_autogen(scenario_name, customer_message))
         time.sleep(2)  # 避免API调用过于频繁
     
     print(f"\n{'='*80}")
