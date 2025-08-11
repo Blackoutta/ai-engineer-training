@@ -20,7 +20,7 @@ from autogen_core.models import ChatCompletionClient
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.teams import RoundRobinGroupChat, SelectorGroupChat
 from autogen_agentchat.ui import Console
-from autogen_ext.models.openai import OpenAIChatCompletionClient
+from autogen_core.model_context import BufferedChatCompletionContext
 
 # 加载环境变量
 load_dotenv()
@@ -40,8 +40,6 @@ llm_config = {
     "temperature": 0.7,
     "timeout": 60,
 }
-
-print(llm_config)
 
 model_client = ChatCompletionClient.load_component(llm_config)
 
@@ -153,6 +151,7 @@ def get_logistics_info(tracking_number: str) -> str:
 # 1. 客服接待智能体
 customer_service_agent = AssistantAgent(
     name="CustomerService",
+    description='客服接待员',
     system_message="""你是一名专业的电商客服接待员。你的职责是：
 1. 友好接待客户，了解客户问题
 2. 对问题进行初步分类（订单查询、退换货、物流问题、产品咨询等）
@@ -162,20 +161,21 @@ customer_service_agent = AssistantAgent(
 请用简洁明了的语言与客户沟通。当客户提到具体订单号时，请直接转交给订单查询专员处理。
 如果问题涉及多个方面，请协调相关专员共同解决。
 
-回复格式：简洁专业，直接回答客户问题。""",
+回复格式：简洁专业，直接回答客户问题。如果能够解答完毕客户的问题，就直接退出，并且回复中包含'TERMINATE'。""",
     model_client=model_client,
 )
 
 # 2. 订单查询智能体
 order_query_agent = AssistantAgent(
     name="OrderSpecialist",
+    description='订单查询专员',
     system_message="""你是订单查询专员，负责处理所有订单相关的查询。你的职责包括：
 1. 根据订单号查询订单详细信息
 2. 解释订单状态和处理进度
 3. 提供预计发货和到货时间
 4. 识别需要其他部门协助的问题
 
-当客户提供订单号时，请立即使用 get_order_info 函数查询订单信息。
+当客户提供订单号时，请根据订单号 使用 get_order_info 函数查询订单详细信息。
 根据查询结果，如果发现需要物流或库存部门协助，请主动通知相关专员。
 
 回复格式：提供详细的订单信息，包括状态、商品、金额等关键信息。""",
@@ -187,13 +187,14 @@ order_query_agent = AssistantAgent(
 # 3. 物流跟踪智能体
 logistics_agent = AssistantAgent(
     name="LogisticsSpecialist",
+    description='物流跟踪专员',
     system_message="""你是物流跟踪专员，专门处理配送和物流相关问题。你的职责包括：
 1. 查询包裹物流状态和位置
 2. 提供准确的配送时间预估
 3. 处理配送异常和延误问题
 4. 协调配送地址修改
 
-当需要查询物流信息时，请使用 get_logistics_info 函数。
+当需要查询物流信息时，请根据运单号调用 get_logistics_info 函数获取物流跟踪信息。
 请提供实时、准确的物流信息，并主动提醒客户注意事项。
 
 回复格式：提供详细的物流状态，包括当前位置、预计到达时间等。""",
@@ -204,14 +205,15 @@ logistics_agent = AssistantAgent(
 
 # 4. 库存管理智能体
 inventory_agent = AssistantAgent(
-    name="InventorySpecialist", 
+    name="InventorySpecialist",
+    description='库存管理专员',
     system_message="""你是库存管理专员，负责处理库存相关问题。你的职责包括：
 1. 查询产品库存状态
 2. 预估补货时间
 3. 协调缺货订单处理
 4. 提供替代产品建议
 
-当需要查询库存信息时，请使用 get_inventory_info 函数。
+当需要查询库存信息时，请根据产品名称使用 get_inventory_info 函数获取库存信息。
 请提供准确的库存信息，并为缺货情况提供合理的解决方案。
 
 回复格式：提供库存状态，如果缺货请说明预计补货时间。""",
@@ -233,11 +235,16 @@ async def run_scenario_with_autogen(scenario_name: str, customer_message: str):
     try:
         # 创建群组聊天
         # Termination condition.
-        termination = TextMentionTermination("Have a good day!")
+        model_context = BufferedChatCompletionContext(buffer_size=10)
+        termination = TextMentionTermination("TERMINATE")
 
         # Chain the assistant, critic and user agents using RoundRobinGroupChat.
-        groupchat = RoundRobinGroupChat([customer_service_agent, order_query_agent, logistics_agent, inventory_agent], termination_condition=termination,
-                    max_turns=5)
+        groupchat = SelectorGroupChat([customer_service_agent, order_query_agent, logistics_agent, inventory_agent],
+                        model_client=model_client,
+                        termination_condition=termination,
+                        max_turns=5,
+                        model_context=model_context,
+                    )
         
         await Console(groupchat.run_stream(task=customer_message))
         
