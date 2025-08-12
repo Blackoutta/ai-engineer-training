@@ -150,7 +150,7 @@ def get_logistics_info(tracking_number: str) -> str:
 
 # 1. 客服接待智能体
 customer_service_agent = AssistantAgent(
-    name="CustomerService",
+    name="CustomerService",  #`name` must be a valid identifier and cannot be in Chinese.
     description='客服接待员',
     system_message="""你是一名专业的电商客服接待员。你的职责是：
 1. 友好接待客户，了解客户问题
@@ -234,16 +234,17 @@ async def run_scenario_with_autogen(scenario_name: str, customer_message: str):
     
     try:
         # 创建群组聊天
-        # Termination condition.
+
         model_context = BufferedChatCompletionContext(buffer_size=20)
+        # Termination condition.
         termination = TextMentionTermination("TERMINATE")
 
-        # Chain the assistant, critic and user agents using RoundRobinGroupChat.
+        # Chain the agents using SelectorGroupChat(https://microsoft.github.io/autogen/stable/reference/python/autogen_agentchat.teams.html#autogen_agentchat.teams.SelectorGroupChat).
         groupchat = SelectorGroupChat([customer_service_agent, order_query_agent, logistics_agent, inventory_agent],
                         model_client=model_client,
                         termination_condition=termination,
                         max_turns=10,
-                        model_context=model_context,
+                        model_context=model_context, #chat history memory
                     )
         
         await Console(groupchat.run_stream(task=customer_message))
