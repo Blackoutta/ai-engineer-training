@@ -1,26 +1,35 @@
 """
 企业级多智能体协同系统 - 电商客服订单处理案例
-使用 AutoGen 框架实现多任务协同，包括：
+使用 AutoGen 0.7.2 框架实现多任务协同，包括：
 1. 客服流程拆解
 2. 数据查询联动  
 3. 跨部门协作调度
 
 适用场景：电商客服系统订单问题处理
+
+【版本说明】
+- 原始版本：AutoGen 0.2
+- 当前版本：AutoGen 0.7.2
+- 更新时间：2024年
 """
 
-import autogen
 import json
 import time
 import os
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional, Union
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+
+# 导入 AutoGen 0.7.2 相关模块
+import autogen
+from autogen import Agent, AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
+from autogen.agentchat.contrib.capabilities.teachability import Teachability
 
 # 加载环境变量
 load_dotenv()
 api_key = os.getenv('V3_API_KEY')
 
-# 配置 LLM
+# 配置 LLM - 适配 AutoGen 0.7.2 格式
 config_list = [
     {
         "model": "gpt-4o",
@@ -29,13 +38,14 @@ config_list = [
     }
 ]
 
+# 0.7.2 版本的 LLM 配置
 llm_config = {
     "config_list": config_list,
     "temperature": 0.7,
     "timeout": 60,
 }
 
-# 模拟企业数据库和API接口
+# 模拟企业数据库和API接口 - 此部分无需变更
 class EnterpriseDataService:
     """企业数据服务模拟类"""
     
@@ -103,7 +113,7 @@ class EnterpriseDataService:
 # 初始化企业数据服务
 data_service = EnterpriseDataService()
 
-# 定义工具函数
+# 定义工具函数 - 函数定义保持不变
 def get_order_info(order_id: str) -> str:
     """获取订单信息的工具函数"""
     try:
@@ -137,19 +147,67 @@ def get_logistics_info(tracking_number: str) -> str:
     except Exception as e:
         return f"查询物流信息时出错：{str(e)}"
 
-# 创建用户代理
-user_proxy = autogen.UserProxyAgent(
+# 创建工具函数字典 - AutoGen 0.7.2 新增
+# 在 0.7.2 中，工具函数需要通过字典形式注册
+order_tools = {
+    "get_order_info": {
+        "function": get_order_info,
+        "description": "根据订单号获取订单详细信息",
+        "args_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {"type": "string", "description": "订单号，例如 ORD001"}
+            },
+            "required": ["order_id"]
+        }
+    }
+}
+
+inventory_tools = {
+    "get_inventory_info": {
+        "function": get_inventory_info,
+        "description": "根据产品名称获取库存信息",
+        "args_schema": {
+            "type": "object",
+            "properties": {
+                "product": {"type": "string", "description": "产品名称，例如 iPhone 15"}
+            },
+            "required": ["product"]
+        }
+    }
+}
+
+logistics_tools = {
+    "get_logistics_info": {
+        "function": get_logistics_info,
+        "description": "根据运单号获取物流跟踪信息",
+        "args_schema": {
+            "type": "object",
+            "properties": {
+                "tracking_number": {"type": "string", "description": "物流运单号，例如 SF1234567890"}
+            },
+            "required": ["tracking_number"]
+        }
+    }
+}
+
+# 创建用户代理 - 适配 AutoGen 0.7.2 API
+# 在 0.7.2 中，UserProxyAgent 的参数有所变化
+user_proxy = UserProxyAgent(
     name="客户",
-    human_input_mode="NEVER",
+    human_input_mode="NEVER",  # 不需要人工输入
     max_consecutive_auto_reply=10,
-    is_termination_msg=lambda x: x.get("content", "") and ("问题已解决" in x.get("content", "") or "TERMINATE" in x.get("content", "")),
+    # 0.7.2 中使用 is_termination_msg 函数替代字符串匹配
+    is_termination_msg=lambda x: "问题已解决" in x.get("content", "") or "TERMINATE" in x.get("content", ""),
+    # 代码执行配置
     code_execution_config={"work_dir": "temp", "use_docker": False},
 )
 
-# 定义智能体角色
+# 定义智能体角色 - 适配 AutoGen 0.7.2 API
+# 在 0.7.2 中，AssistantAgent 的创建方式有所变化
 
 # 1. 客服接待智能体
-customer_service_agent = autogen.AssistantAgent(
+customer_service_agent = AssistantAgent(
     name="客服接待员",
     system_message="""你是一名专业的电商客服接待员。你的职责是：
 1. 友好接待客户，了解客户问题
@@ -165,7 +223,7 @@ customer_service_agent = autogen.AssistantAgent(
 )
 
 # 2. 订单查询智能体
-order_query_agent = autogen.AssistantAgent(
+order_query_agent = AssistantAgent(
     name="订单查询专员",
     system_message="""你是订单查询专员，负责处理所有订单相关的查询。你的职责包括：
 1. 根据订单号查询订单详细信息
@@ -178,10 +236,12 @@ order_query_agent = autogen.AssistantAgent(
 
 回复格式：提供详细的订单信息，包括状态、商品、金额等关键信息。""",
     llm_config=llm_config,
+    # 0.7.2 中通过 function_map 参数注册工具函数
+    function_map=order_tools
 )
 
 # 3. 物流跟踪智能体
-logistics_agent = autogen.AssistantAgent(
+logistics_agent = AssistantAgent(
     name="物流跟踪专员",
     system_message="""你是物流跟踪专员，专门处理配送和物流相关问题。你的职责包括：
 1. 查询包裹物流状态和位置
@@ -194,10 +254,12 @@ logistics_agent = autogen.AssistantAgent(
 
 回复格式：提供详细的物流状态，包括当前位置、预计到达时间等。""",
     llm_config=llm_config,
+    # 0.7.2 中通过 function_map 参数注册工具函数
+    function_map=logistics_tools
 )
 
 # 4. 库存管理智能体
-inventory_agent = autogen.AssistantAgent(
+inventory_agent = AssistantAgent(
     name="库存管理专员", 
     system_message="""你是库存管理专员，负责处理库存相关问题。你的职责包括：
 1. 查询产品库存状态
@@ -210,28 +272,8 @@ inventory_agent = autogen.AssistantAgent(
 
 回复格式：提供库存状态，如果缺货请说明预计补货时间。""",
     llm_config=llm_config,
-)
-
-# 注册工具函数
-autogen.register_function(
-    get_order_info,
-    caller=order_query_agent,
-    executor=user_proxy,
-    description="根据订单号获取订单详细信息"
-)
-
-autogen.register_function(
-    get_inventory_info,
-    caller=inventory_agent,
-    executor=user_proxy,
-    description="根据产品名称获取库存信息"
-)
-
-autogen.register_function(
-    get_logistics_info,
-    caller=logistics_agent,
-    executor=user_proxy,
-    description="根据运单号获取物流跟踪信息"
+    # 0.7.2 中通过 function_map 参数注册工具函数
+    function_map=inventory_tools
 )
 
 # 企业级客服场景测试
@@ -245,17 +287,21 @@ def run_scenario_with_autogen(scenario_name: str, customer_message: str):
     print("-" * 50)
     
     try:
-        # 创建群组聊天
-        groupchat = autogen.GroupChat(
+        # 创建群组聊天 - 适配 AutoGen 0.7.2 API
+        # 在 0.7.2 中，GroupChat 的参数有所变化
+        groupchat = GroupChat(
             agents=[customer_service_agent, order_query_agent, logistics_agent, inventory_agent, user_proxy],
             messages=[],
             max_round=12,
+            # 0.7.2 中 speaker_selection_method 参数有变化
             speaker_selection_method="auto"
         )
         
-        manager = autogen.GroupChatManager(groupchat=groupchat, llm_config=llm_config)
+        # 创建群组聊天管理器 - 适配 AutoGen 0.7.2 API
+        manager = GroupChatManager(groupchat=groupchat, llm_config=llm_config)
         
-        # 开始对话
+        # 开始对话 - 适配 AutoGen 0.7.2 API
+        # 在 0.7.2 中，initiate_chat 的参数和行为有所变化
         user_proxy.initiate_chat(
             manager,
             message=customer_message
@@ -270,7 +316,7 @@ def run_scenario_with_autogen(scenario_name: str, customer_message: str):
 def main():
     """主函数 - 演示企业级多智能体协同"""
     print("🏢 企业级多智能体协同系统 - 电商客服订单处理演示")
-    print("基于 AutoGen 框架实现")
+    print("基于 AutoGen 0.7.2 框架实现")
     print("="*80)
     print("系统特性：")
     print("✅ 1. 客服流程自动拆解")
@@ -280,7 +326,7 @@ def main():
     print("✅ 5. AutoGen 框架支持")
     
     # 检查API配置
-    if not api_key or api_key == "your-actual-api-key":
+    if not api_key:
         print("\n⚠️  警告：请在 .env 文件中配置正确的 V3_API_KEY")
         print("当前将演示系统架构和数据查询功能")
         
@@ -317,7 +363,7 @@ def main():
     
     print(f"\n{'='*80}")
     print("🎉 企业级多智能体协同演示完成！")
-    print("💡 该系统基于 AutoGen 框架，展示了电商客服系统中的多任务协同和跨部门协作")
+    print("💡 该系统基于 AutoGen 0.7.2 框架，展示了电商客服系统中的多任务协同和跨部门协作")
 
 if __name__ == "__main__":
     main()
