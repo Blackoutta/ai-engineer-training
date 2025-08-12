@@ -235,14 +235,14 @@ async def run_scenario_with_autogen(scenario_name: str, customer_message: str):
     try:
         # 创建群组聊天
         # Termination condition.
-        model_context = BufferedChatCompletionContext(buffer_size=10)
+        model_context = BufferedChatCompletionContext(buffer_size=20)
         termination = TextMentionTermination("TERMINATE")
 
         # Chain the assistant, critic and user agents using RoundRobinGroupChat.
         groupchat = SelectorGroupChat([customer_service_agent, order_query_agent, logistics_agent, inventory_agent],
                         model_client=model_client,
                         termination_condition=termination,
-                        max_turns=5,
+                        max_turns=10,
                         model_context=model_context,
                     )
         

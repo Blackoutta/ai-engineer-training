@@ -75,7 +75,7 @@ nest-asyncio==1.6.0
 networkx==3.5
 nltk==3.9.1
 numpy==2.3.2
-openai==1.99.6
+openai==1.99.1
 opentelemetry-api==1.36.0
 orjson==3.11.1
 ormsgpack==1.10.0
