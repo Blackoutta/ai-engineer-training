@@ -2089,6 +2089,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pip"
+version = "25.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/20/16/650289cd3f43d5a2fadfd98c68bd1e1e7f2550a1a5326768cddfbcedb2c5/pip-25.2.tar.gz", hash = "sha256:578283f006390f85bb6282dffb876454593d637f5d1be494b5202ce4877e71f2", size = 1840021, upload-time = "2025-07-30T21:50:15.401Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/b7/3f/945ef7ab14dc4f9d7f40288d2df998d1837ee0888ec3659c813487572faa/pip-25.2-py3-none-any.whl", hash = "sha256:6d67a2b4e7f14d8b31b8b52648866fa717f45a1eb70e83002f4331d07e953717", size = 1752557, upload-time = "2025-07-30T21:50:13.323Z" },
+]
+
+[[package]]
 name = "platformdirs"
 version = "4.4.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -3126,12 +3135,15 @@ dependencies = [
     { name = "ipywidgets" },
     { name = "jupyter" },
     { name = "llama-index" },
+    { name = "llama-index-core" },
     { name = "llama-index-embeddings-dashscope" },
     { name = "llama-index-llms-dashscope" },
     { name = "llama-index-llms-openai-like" },
     { name = "llama-index-readers-smart-pdf-loader" },
     { name = "llmsherpa" },
+    { name = "nltk" },
     { name = "numpy" },
+    { name = "pip" },
     { name = "python-dotenv" },
 ]
 
@@ -3141,12 +3153,15 @@ requires-dist = [
     { name = "ipywidgets" },
     { name = "jupyter" },
     { name = "llama-index" },
+    { name = "llama-index-core" },
     { name = "llama-index-embeddings-dashscope" },
     { name = "llama-index-llms-dashscope" },
     { name = "llama-index-llms-openai-like" },
     { name = "llama-index-readers-smart-pdf-loader" },
     { name = "llmsherpa" },
+    { name = "nltk" },
     { name = "numpy" },
+    { name = "pip" },
     { name = "python-dotenv" },
 ]
 
