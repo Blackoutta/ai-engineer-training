@@ -19,4 +19,7 @@ dependencies = [
 	"python-dotenv",
     "pip",
     "nltk",
+    "paddlepaddle==3.0.0",
+    "paddleocr",
+    "paddlex[base]",
 ]
